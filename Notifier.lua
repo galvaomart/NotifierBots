@@ -16,6 +16,15 @@ local MAX_SCAN_TIME = 5
 local BUYERS_WEBHOOK = "https://discord.com/api/webhooks/1452638384324477132/CW7VXup_c49nzxrYdVqXsJ_siUIQz3-s3edWkomA1_XoQEUe2s6wocMtHcAal99dTwlU"
 local HIGHLIGHTS_WEBHOOK = "https://discord.com/api/webhooks/1450984721835102349/edA21nviAK_1xcHqfVil1REuWpMVq7dLM5nzNwdtenWkZw_2ks1VPR2L88adFid34pA5"
 
+
+local TeleportService = game:GetService("TeleportService")
+
+TeleportService.TeleportInitFailed:Connect(function(player, result, errorMessage)
+    warn("[AJ | TELEPORT] Failed:", result, errorMessage)
+    task.wait(0.5)
+    hopNewServer()
+end)
+
 -- ======================
 -- PLAYER
 -- ======================
