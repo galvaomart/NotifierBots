@@ -1,21 +1,29 @@
+-- ======================
 -- SERVICES
+-- ======================
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 
+-- ======================
 -- CONFIG
+-- ======================
 local PLACE_ID = game.PlaceId
 local JOB_ID = game.JobId
-local MIN_MPS = 10000000
+local MIN_MPS = 10_000_000
 local MAX_SCAN_TIME = 5
 
 local BUYERS_WEBHOOK = "https://discord.com/api/webhooks/1452638384324477132/CW7VXup_c49nzxrYdVqXsJ_siUIQz3-s3edWkomA1_XoQEUe2s6wocMtHcAal99dTwlU"
 local HIGHLIGHTS_WEBHOOK = "https://discord.com/api/webhooks/1450984721835102349/edA21nviAK_1xcHqfVil1REuWpMVq7dLM5nzNwdtenWkZw_2ks1VPR2L88adFid34pA5"
 
--- PLAYER (CRASH SAFE)
+-- ======================
+-- PLAYER
+-- ======================
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
+-- ======================
 -- REQUEST
+-- ======================
 local request =
     request
     or http_request
@@ -23,17 +31,21 @@ local request =
     or (fluxus and fluxus.request)
     or (http and http.request)
 
--- GLOBAL MEMORY
+-- ======================
+-- MEMORY
+-- ======================
 _G.AJ_LAST_JOB = _G.AJ_LAST_JOB or nil
 
 -- ======================
--- LOGGING (CLEAN)
+-- LOGGING
 -- ======================
 local function log(tag, msg)
     print(string.format("[AJ | %s] %s", tag, msg))
 end
 
+-- ======================
 -- FORMAT MONEY
+-- ======================
 local function formatMoney(n)
     if not n then return "0" end
     if n >= 1e9 then
@@ -45,7 +57,9 @@ local function formatMoney(n)
     end
 end
 
--- PARSE MPS (SAFE)
+-- ======================
+-- PARSE MPS
+-- ======================
 local function parseMPS(txt)
     if not txt or not txt:find("/s") then return end
 
@@ -67,59 +81,82 @@ local function parseMPS(txt)
 end
 
 -- ======================
--- SERVER HOP (SAFE)
+-- SERVER HOP (NEW SYSTEM)
 -- ======================
 local function hopNewServer()
-    local originalJob = game.JobId
-    log("HOP", "Searching new server")
+    local currentJob = game.JobId
+    log("HOP", "Searching for new server")
 
-    while true do
-        local cursor = ""
+    local tried = {}
+    local cursor = ""
+    local attempts = 0
+
+    while attempts < 10 do
+        attempts += 1
+
+        local url =
+            "https://games.roblox.com/v1/games/" ..
+            PLACE_ID ..
+            "/servers/Public?sortOrder=Asc&limit=100" ..
+            (cursor ~= "" and "&cursor=" .. cursor or "")
+
+        local ok, body = pcall(game.HttpGet, game, url)
+        if not ok or not body then
+            task.wait(1.5)
+            continue
+        end
+
+        local data
+        ok, data = pcall(HttpService.JSONDecode, HttpService, body)
+        if not ok or type(data) ~= "table" then
+            task.wait(1.5)
+            continue
+        end
+
+        cursor = data.nextPageCursor or ""
+
         local candidates = {}
-
-        repeat
-            local url =
-                "https://games.roblox.com/v1/games/" ..
-                PLACE_ID ..
-                "/servers/Public?sortOrder=Asc&limit=100" ..
-                (cursor ~= "" and "&cursor=" .. cursor or "")
-
-            local ok, body = pcall(game.HttpGet, game, url)
-            if not ok or not body then break end
-
-            local data
-            ok, data = pcall(HttpService.JSONDecode, HttpService, body)
-            if not ok or type(data) ~= "table" then break end
-
-            cursor = data.nextPageCursor or ""
-
-            if type(data.data) == "table" then
-                for _, srv in ipairs(data.data) do
-                    if srv.id and srv.playing < srv.maxPlayers and srv.id ~= originalJob then
-                        table.insert(candidates, srv.id)
-                    end
+        if type(data.data) == "table" then
+            for _, srv in ipairs(data.data) do
+                if srv.id
+                    and srv.id ~= currentJob
+                    and not tried[srv.id]
+                    and srv.playing < srv.maxPlayers
+                then
+                    table.insert(candidates, srv.id)
                 end
             end
-        until #candidates > 0 or cursor == ""
+        end
 
         if #candidates > 0 and LocalPlayer and LocalPlayer.Parent then
             local target = candidates[math.random(#candidates)]
+            tried[target] = true
+
             log("HOP", "Teleporting")
+            pcall(
+                TeleportService.TeleportToPlaceInstance,
+                TeleportService,
+                PLACE_ID,
+                target,
+                LocalPlayer
+            )
 
-            pcall(TeleportService.TeleportToPlaceInstance, TeleportService, PLACE_ID, target, LocalPlayer)
             task.wait(2)
-
-            if game.JobId ~= originalJob then
+            if game.JobId ~= currentJob then
                 return
             end
         end
 
-        task.wait(1.5)
+        if cursor == "" then break end
+        task.wait(1.2)
     end
+
+    task.wait(2)
+    hopNewServer()
 end
 
 -- ======================
--- SCAN BRAINROTS (SAFE)
+-- SCAN BRAINROTS
 -- ======================
 local function scanBrainrots()
     local debris = workspace:FindFirstChild("Debris")
@@ -173,7 +210,7 @@ local function scanBrainrots()
 end
 
 -- ======================
--- WEBHOOK (SAFE)
+-- WEBHOOK SEND
 -- ======================
 local function sendWebhook(url, payload)
     if not request then return end
@@ -186,7 +223,7 @@ local function sendWebhook(url, payload)
 end
 
 -- ======================
--- HIGHLIGHTS (YOUR STYLE)
+-- HIGHLIGHTS
 -- ======================
 local function sendHighlights(hits)
     if not hits[1] then return end
@@ -205,7 +242,6 @@ local function sendHighlights(hits)
         footer = { text = "Awesome Highlights ~ Purchase in Dashboard" }
     }
 
-    -- ONLY add description if there are other brainrots
     if #lines > 0 then
         embed.description =
             "```text\n" .. table.concat(lines, "\n") .. "\n```"
@@ -216,11 +252,15 @@ local function sendHighlights(hits)
     })
 end
 
-
+-- ======================
+-- BUYERS
+-- ======================
 local function sendBuyers(hits)
     if not hits[1] then return end
 
     local top = hits[1]
+    local joinUrl = "https://www.roblox.com/games/" .. PLACE_ID .. "?jobId=" .. JOB_ID
+
     sendWebhook(BUYERS_WEBHOOK, {
         embeds = {{
             title = "Awesome Alert",
@@ -230,13 +270,23 @@ local function sendBuyers(hits)
                 formatMoney(top.mps),
                 JOB_ID
             ),
-            color = 0xf1c40f
+            color = 0xf1c40f,
+            footer = { text = "Awesome Joiner" }
+        }},
+        components = {{
+            type = 1,
+            components = {{
+                type = 2,
+                style = 5,
+                label = "Join Game",
+                url = joinUrl
+            }}
         }}
     })
 end
 
 -- ======================
--- MAIN FLOW (SAFE)
+-- MAIN FLOW
 -- ======================
 if _G.AJ_LAST_JOB == JOB_ID then
     log("SKIP", "Same server detected")
