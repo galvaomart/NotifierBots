@@ -185,10 +185,12 @@ local function buildOtherList(hits)
     local lines = {}
     for i = 2, #hits do
         lines[#lines + 1] =
-            string.format("%s  $%s/s", hits[i].name, formatMoney(hits[i].mps))
+            string.format("- %s  $%s/s", hits[i].name, formatMoney(hits[i].mps))
     end
-    return #lines > 0 and table.concat(lines, "\n") or ""
+
+    return #lines > 0 and "```\n" .. table.concat(lines, "\n") .. "\n```" or ""
 end
+
 
 -- CLEAN HIGHLIGHTS (TEMPLATE STYLE)
 local function sendHighlights(hits)
@@ -198,15 +200,16 @@ local function sendHighlights(hits)
         embeds = {{
             title = "Awesome Highlights",
             description = string.format(
-                "**%s ($%s/s)**\n\n%s",
+                "# %s\n$%s/s\n\n%s\n\n*Awesome Joiner & Highlights*",
                 top.name,
                 formatMoney(top.mps),
                 buildOtherList(hits)
             ),
-            color = 0x2ecc71
+            color = 0xffcc00
         }}
     })
 end
+
 
 -- CLEAN BUYERS (NO SERVER INFO SHOWN)
 local function sendBuyers(hits)
