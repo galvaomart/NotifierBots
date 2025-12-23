@@ -85,54 +85,41 @@ end
 -- ======================
 local function hopNewServer()
     local currentJob = game.JobId
-    log("HOP", "Searching for new server")
+    log("HOP", "Fast hopping")
 
-    local tried = {}
-    local cursor = ""
-    local attempts = 0
-
-    while attempts < 10 do
-        attempts += 1
-
+    for _ = 1, 5 do
         local url =
             "https://games.roblox.com/v1/games/" ..
             PLACE_ID ..
-            "/servers/Public?sortOrder=Asc&limit=100" ..
-            (cursor ~= "" and "&cursor=" .. cursor or "")
+            "/servers/Public?sortOrder=Asc&limit=100"
 
         local ok, body = pcall(game.HttpGet, game, url)
         if not ok or not body then
-            task.wait(1.5)
+            task.wait(0.5)
             continue
         end
 
         local data
         ok, data = pcall(HttpService.JSONDecode, HttpService, body)
-        if not ok or type(data) ~= "table" then
-            task.wait(1.5)
+        if not ok or type(data) ~= "table" or type(data.data) ~= "table" then
+            task.wait(0.5)
             continue
         end
 
-        cursor = data.nextPageCursor or ""
-
         local candidates = {}
-        if type(data.data) == "table" then
-            for _, srv in ipairs(data.data) do
-                if srv.id
-                    and srv.id ~= currentJob
-                    and not tried[srv.id]
-                    and srv.playing < srv.maxPlayers
-                then
-                    table.insert(candidates, srv.id)
-                end
+        for _, srv in ipairs(data.data) do
+            if srv.id
+                and srv.id ~= currentJob
+                and srv.playing < srv.maxPlayers
+            then
+                table.insert(candidates, srv.id)
             end
         end
 
         if #candidates > 0 and LocalPlayer and LocalPlayer.Parent then
             local target = candidates[math.random(#candidates)]
-            tried[target] = true
+            log("HOP", "Teleporting immediately")
 
-            log("HOP", "Teleporting")
             pcall(
                 TeleportService.TeleportToPlaceInstance,
                 TeleportService,
@@ -141,19 +128,16 @@ local function hopNewServer()
                 LocalPlayer
             )
 
-            task.wait(2)
-            if game.JobId ~= currentJob then
-                return
-            end
+            task.wait(1)
+            return
         end
-
-        if cursor == "" then break end
-        task.wait(1.2)
     end
 
-    task.wait(2)
+    -- fallback retry (short delay)
+    task.wait(0.75)
     hopNewServer()
 end
+
 
 -- ======================
 -- SCAN BRAINROTS
