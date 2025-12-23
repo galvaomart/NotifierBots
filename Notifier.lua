@@ -6,7 +6,7 @@ local HttpService = game:GetService("HttpService")
 -- CONFIG
 local PLACE_ID = game.PlaceId
 local JOB_ID = game.JobId
-local MIN_MPS = 1_000
+local MIN_MPS = 10_000_000
 local MAX_SCAN_TIME = 5
 
 local BUYERS_WEBHOOK = "https://discord.com/api/webhooks/1452638384324477132/CW7VXup_c49nzxrYdVqXsJ_siUIQz3-s3edWkomA1_XoQEUe2s6wocMtHcAal99dTwlU"
