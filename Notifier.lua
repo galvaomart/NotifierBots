@@ -12,7 +12,7 @@ local MAX_SCAN_TIME = 5
 local BUYERS_WEBHOOK = "https://discord.com/api/webhooks/1452638384324477132/CW7VXup_c49nzxrYdVqXsJ_siUIQz3-s3edWkomA1_XoQEUe2s6wocMtHcAal99dTwlU"
 local HIGHLIGHTS_WEBHOOK = "https://discord.com/api/webhooks/1450984721835102349/edA21nviAK_1xcHqfVil1REuWpMVq7dLM5nzNwdtenWkZw_2ks1VPR2L88adFid34pA5"
 
--- PLAYER
+-- PLAYER (CRASH SAFE)
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
 -- REQUEST
@@ -23,10 +23,19 @@ local request =
     or (fluxus and fluxus.request)
     or (http and http.request)
 
+-- GLOBAL MEMORY
 _G.AJ_LAST_JOB = _G.AJ_LAST_JOB or nil
+
+-- ======================
+-- LOGGING (CLEAN)
+-- ======================
+local function log(tag, msg)
+    print(string.format("[AJ | %s] %s", tag, msg))
+end
 
 -- FORMAT MONEY
 local function formatMoney(n)
+    if not n then return "0" end
     if n >= 1e9 then
         return string.format("%.1fB", n / 1e9)
     elseif n >= 1e6 then
@@ -36,9 +45,9 @@ local function formatMoney(n)
     end
 end
 
--- PARSE MPS
+-- PARSE MPS (SAFE)
 local function parseMPS(txt)
-    if not txt or not txt:lower():find("/s") then return end
+    if not txt or not txt:find("/s") then return end
 
     local num, suf = txt:match("%$([%d%.]+)%s*([KMB]?)")
     if not num then return end
@@ -57,9 +66,12 @@ local function parseMPS(txt)
     return math.floor(v)
 end
 
--- HARD SERVER HOP LOOP
+-- ======================
+-- SERVER HOP (SAFE)
+-- ======================
 local function hopNewServer()
     local originalJob = game.JobId
+    log("HOP", "Searching new server")
 
     while true do
         local cursor = ""
@@ -72,25 +84,18 @@ local function hopNewServer()
                 "/servers/Public?sortOrder=Asc&limit=100" ..
                 (cursor ~= "" and "&cursor=" .. cursor or "")
 
-            local ok, body = pcall(function()
-                return game:HttpGet(url)
-            end)
-            if not ok then break end
+            local ok, body = pcall(game.HttpGet, game, url)
+            if not ok or not body then break end
 
             local data
-            ok, data = pcall(function()
-                return HttpService:JSONDecode(body)
-            end)
+            ok, data = pcall(HttpService.JSONDecode, HttpService, body)
             if not ok or type(data) ~= "table" then break end
 
             cursor = data.nextPageCursor or ""
 
             if type(data.data) == "table" then
                 for _, srv in ipairs(data.data) do
-                    if srv.id
-                        and srv.playing < srv.maxPlayers
-                        and srv.id ~= originalJob
-                    then
+                    if srv.id and srv.playing < srv.maxPlayers and srv.id ~= originalJob then
                         table.insert(candidates, srv.id)
                     end
                 end
@@ -98,14 +103,10 @@ local function hopNewServer()
         until #candidates > 0 or cursor == ""
 
         if #candidates > 0 and LocalPlayer and LocalPlayer.Parent then
-            pcall(function()
-                TeleportService:TeleportToPlaceInstance(
-                    PLACE_ID,
-                    candidates[math.random(#candidates)],
-                    LocalPlayer
-                )
-            end)
+            local target = candidates[math.random(#candidates)]
+            log("HOP", "Teleporting")
 
+            pcall(TeleportService.TeleportToPlaceInstance, TeleportService, PLACE_ID, target, LocalPlayer)
             task.wait(2)
 
             if game.JobId ~= originalJob then
@@ -117,7 +118,9 @@ local function hopNewServer()
     end
 end
 
--- SCAN BRAINROTS
+-- ======================
+-- SCAN BRAINROTS (SAFE)
+-- ======================
 local function scanBrainrots()
     local debris = workspace:FindFirstChild("Debris")
     if not debris then return {} end
@@ -139,7 +142,7 @@ local function scanBrainrots()
                         if val then
                             mps = val
                         elseif not txt:lower():find("stolen")
-                            and not txt:lower():find("/s")
+                            and not txt:find("/s")
                             and not txt:find("%$")
                             and not txt:match("^%d")
                         then
@@ -169,10 +172,12 @@ local function scanBrainrots()
     return found
 end
 
--- WEBHOOK
+-- ======================
+-- WEBHOOK (SAFE)
+-- ======================
 local function sendWebhook(url, payload)
     if not request then return end
-    request({
+    pcall(request, {
         Url = url,
         Method = "POST",
         Headers = { ["Content-Type"] = "application/json" },
@@ -180,22 +185,15 @@ local function sendWebhook(url, payload)
     })
 end
 
--- CLEAN LIST (NO CODE BLOCK, NO EMOJIS)
-local function buildOtherList(hits)
-    local lines = {}
-    for i = 2, #hits do
-        lines[#lines + 1] =
-            string.format("- %s  $%s/s", hits[i].name, formatMoney(hits[i].mps))
-    end
-
-    return #lines > 0 and "```\n" .. table.concat(lines, "\n") .. "\n```" or ""
-end
-
-
+-- ======================
+-- HIGHLIGHTS (YOUR STYLE)
+-- ======================
 local function sendHighlights(hits)
-    local top = hits[1]
+    if not hits[1] then return end
 
+    local top = hits[1]
     local lines = {}
+
     for i = 2, #hits do
         lines[#lines + 1] =
             string.format("%-25s $%s/s", hits[i].name, formatMoney(hits[i].mps))
@@ -206,28 +204,22 @@ local function sendHighlights(hits)
             title = string.format("%s ($%s/s)", top.name, formatMoney(top.mps)),
             description = "```text\n" .. table.concat(lines, "\n") .. "\n```",
             color = 0x2ecc71,
-            footer = {
-                text = "Awesome Highlights"
-            }
-            -- thumbnail = { url = "IMAGE_URL" } -- optional
+            footer = { text = "Awesome Highlights" }
         }}
     })
 end
 
-
-
--- CLEAN BUYERS (NO SERVER INFO SHOWN)
 local function sendBuyers(hits)
-    local top = hits[1]
+    if not hits[1] then return end
 
+    local top = hits[1]
     sendWebhook(BUYERS_WEBHOOK, {
         embeds = {{
             title = "Awesome Alert",
             description = string.format(
-                "**%s ($%s/s)**\n\n%s\n\nJob ID:\n```%s```",
+                "%s ($%s/s)\n\nJob ID:\n```%s```",
                 top.name,
                 formatMoney(top.mps),
-                buildOtherList(hits),
                 JOB_ID
             ),
             color = 0xf1c40f
@@ -235,8 +227,11 @@ local function sendBuyers(hits)
     })
 end
 
--- MAIN FLOW
+-- ======================
+-- MAIN FLOW (SAFE)
+-- ======================
 if _G.AJ_LAST_JOB == JOB_ID then
+    log("SKIP", "Same server detected")
     hopNewServer()
     return
 end
@@ -253,8 +248,8 @@ end
 _G.AJ_LAST_JOB = JOB_ID
 
 if #hits > 0 then
-    print(string.format(
-        "[HIGHLIGHT] %s — $%s/s (%d total)",
+    log("HIGHLIGHT", string.format(
+        "%s — $%s/s (%d total)",
         hits[1].name,
         formatMoney(hits[1].mps),
         #hits
@@ -263,7 +258,7 @@ if #hits > 0 then
     sendHighlights(hits)
     sendBuyers(hits)
 else
-    print("[SCAN] No valid brainrots found")
+    log("SCAN", "No valid brainrots found")
 end
 
 hopNewServer()
