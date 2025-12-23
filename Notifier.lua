@@ -192,23 +192,28 @@ local function buildOtherList(hits)
 end
 
 
--- CLEAN HIGHLIGHTS (TEMPLATE STYLE)
 local function sendHighlights(hits)
     local top = hits[1]
 
+    local lines = {}
+    for i = 2, #hits do
+        lines[#lines + 1] =
+            string.format("%-25s $%s/s", hits[i].name, formatMoney(hits[i].mps))
+    end
+
     sendWebhook(HIGHLIGHTS_WEBHOOK, {
         embeds = {{
-            title = "Awesome Highlights",
-            description = string.format(
-                "# %s\n$%s/s\n\n%s\n\n*Awesome Joiner & Highlights*",
-                top.name,
-                formatMoney(top.mps),
-                buildOtherList(hits)
-            ),
-            color = 0xffcc00
+            title = string.format("%s ($%s/s)", top.name, formatMoney(top.mps)),
+            description = "```text\n" .. table.concat(lines, "\n") .. "\n```",
+            color = 0x2ecc71,
+            footer = {
+                text = "Awesome Highlights"
+            }
+            -- thumbnail = { url = "IMAGE_URL" } -- optional
         }}
     })
 end
+
 
 
 -- CLEAN BUYERS (NO SERVER INFO SHOWN)
