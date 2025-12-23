@@ -202,7 +202,7 @@ local function sendHighlights(hits)
     local embed = {
         title = string.format("%s ($%s/s)", top.name, formatMoney(top.mps)),
         color = 0x2ecc71,
-        footer = { text = "Awesome Highlights" }
+        footer = { text = "Awesome Highlights ~ Purchase in Dashboard" }
     }
 
     -- ONLY add description if there are other brainrots
