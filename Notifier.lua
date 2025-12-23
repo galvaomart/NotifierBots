@@ -261,29 +261,42 @@ local function sendBuyers(hits)
     local top = hits[1]
     local joinUrl = "https://www.roblox.com/games/" .. PLACE_ID .. "?jobId=" .. JOB_ID
 
+    local lines = {}
+    for i = 2, #hits do
+        lines[#lines + 1] =
+            string.format("%-25s $%s/s", hits[i].name, formatMoney(hits[i].mps))
+    end
+
+    local embed = {
+        title = string.format("%s ($%s/s)", top.name, formatMoney(top.mps)),
+        color = 0xf1c40f,
+        footer = { text = "Awesome Joiner" }
+    }
+
+    -- same list as highlights (ONLY if others exist)
+    if #lines > 0 then
+        embed.description =
+            "```text\n" .. table.concat(lines, "\n") .. "\n```" ..
+            "\n\nJob ID:\n```" .. JOB_ID .. "```"
+    else
+        embed.description =
+            "Job ID:\n```" .. JOB_ID .. "```"
+    end
+
     sendWebhook(BUYERS_WEBHOOK, {
-        embeds = {{
-            title = "Awesome Alert",
-            description = string.format(
-                "%s ($%s/s)\n\nJob ID:\n```%s```",
-                top.name,
-                formatMoney(top.mps),
-                JOB_ID
-            ),
-            color = 0xf1c40f,
-            footer = { text = "Awesome Joiner" }
-        }},
+        embeds = { embed },
         components = {{
             type = 1,
             components = {{
                 type = 2,
-                style = 5,
+                style = 5, -- LINK BUTTON
                 label = "Join Game",
                 url = joinUrl
             }}
         }}
     })
 end
+
 
 -- ======================
 -- MAIN FLOW
