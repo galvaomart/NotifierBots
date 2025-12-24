@@ -17,44 +17,6 @@ local BUYERS_WEBHOOK = "https://discord.com/api/webhooks/1452638384324477132/CW7
 local HIGHLIGHTS_WEBHOOK = "https://discord.com/api/webhooks/1450984721835102349/edA21nviAK_1xcHqfVil1REuWpMVq7dLM5nzNwdtenWkZw_2ks1VPR2L88adFid34pA5"
 
 -- ======================
--- JOB ID ENCRYPTION
--- ======================
-local ELEVATE_SECRET = "ELEVATE_2025"
-
-local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-local function base64encode(data)
-    return ((data:gsub('.', function(x)
-        local r,bits='',x:byte()
-        for i=8,1,-1 do
-            r=r..(bits%2^i-bits%2^(i-1)>0 and '1' or '0')
-        end
-        return r
-    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-        if #x < 6 then return '' end
-        local c=0
-        for i=1,6 do
-            c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0)
-        end
-        return b:sub(c+1,c+1)
-    end)..({ '', '==', '=' })[#data%3+1])
-end
-
-local function xorCrypt(input, key)
-    local out = {}
-    for i = 1, #input do
-        out[i] = string.char(bit32.bxor(
-            input:byte(i),
-            key:byte(((i - 1) % #key) + 1)
-        ))
-    end
-    return table.concat(out)
-end
-
-local function encryptJobId(jobId)
-    return base64encode(xorCrypt(jobId, ELEVATE_SECRET))
-end
-
--- ======================
 -- PLAYER / REQUEST
 -- ======================
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
@@ -98,7 +60,7 @@ local function parseMPS(txt)
 end
 
 -- ======================
--- FAST SCAN (NO MIXING)
+-- FAST SCAN (NO RARITY)
 -- ======================
 local function scanBrainrots()
     local debris = workspace:FindFirstChild("Debris")
@@ -112,6 +74,7 @@ local function scanBrainrots()
         then
             local mps, name
 
+            -- pass 1: mps
             for _, o in ipairs(gui:GetDescendants()) do
                 if o:IsA("TextLabel") then
                     local v = parseMPS(o.Text)
@@ -119,6 +82,7 @@ local function scanBrainrots()
                 end
             end
 
+            -- pass 2: real name (not rarity)
             if mps then
                 local best, bestLen = nil, 0
                 for _, o in ipairs(gui:GetDescendants()) do
@@ -156,7 +120,7 @@ local function scanBrainrots()
 end
 
 -- ======================
--- WEBHOOK (DESIGN UNCHANGED)
+-- WEBHOOK
 -- ======================
 local function sendWebhook(url, payload)
     if not request then return end
@@ -168,13 +132,16 @@ local function sendWebhook(url, payload)
     })
 end
 
+-- ======================
+-- HIGHLIGHTS
+-- ======================
 local function sendHighlights(hits)
     local top = hits[1]
     if not top then return end
 
     local lines = {}
-    for i = 2, #hits do
-        lines[#lines + 1] =
+    for i=2,#hits do
+        lines[#lines+1] =
             string.format("%-22s $%s/s", hits[i].name, formatMoney(hits[i].mps))
     end
 
@@ -185,21 +152,30 @@ local function sendHighlights(hits)
     }
 
     if #lines > 0 then
-        embed.description = "```text\n" .. table.concat(lines, "\n") .. "\n```"
+        embed.description = "```text\n"..table.concat(lines,"\n").."\n```"
     end
 
     sendWebhook(HIGHLIGHTS_WEBHOOK, { embeds = { embed } })
 end
 
+-- ======================
+-- BUYERS (TELEPORT SCRIPT)
+-- ======================
 local function sendBuyers(hits)
     local top = hits[1]
     if not top then return end
 
-    local encryptedJob = encryptJobId(JOB_ID)
+    local teleportSnippet = string.format(
+[[game:GetService("TeleportService"):TeleportToPlaceInstance(
+    %d,
+    "%s",
+    game.Players.LocalPlayer
+)]], PLACE_ID, JOB_ID)
 
     local embed = {
         title = string.format("%s — $%s/s", top.name, formatMoney(top.mps)),
-        description = "Job ID:\n```" .. encryptedJob .. "```",
+        description =
+            "```lua\n" .. teleportSnippet .. "\n```",
         color = 0xFFFFFF,
         footer = { text = "Elevate • Private Access" }
     }
@@ -208,74 +184,47 @@ local function sendBuyers(hits)
 end
 
 -- ======================
--- SERVER HOP (FIXED: NO RESTRICTED LOOPS)
+-- SERVER HOP (SAFE)
 -- ======================
 local tried = {}
 
-local function fetchServers(cursor)
-    local url = "https://games.roblox.com/v1/games/" .. PLACE_ID .. "/servers/Public?sortOrder=Asc&limit=100"
-    if cursor then
-        url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
-    end
-
-    local ok, body = pcall(game.HttpGet, game, url)
-    if not ok or not body then return nil end
-
-    local ok2, data = pcall(HttpService.JSONDecode, HttpService, body)
-    if not ok2 or type(data) ~= "table" then return nil end
-    return data
-end
-
 local function hopNewServer()
     local current = game.JobId
+    local cursor
 
-    local cursor = nil
-    for _ = 1, 8 do
-        local data = fetchServers(cursor)
-        if not data or type(data.data) ~= "table" then
-            task.wait(0.25)
-        else
-            cursor = data.nextPageCursor
+    for _=1,8 do
+        local url = "https://games.roblox.com/v1/games/"..PLACE_ID.."/servers/Public?sortOrder=Asc&limit=100"
+        if cursor then url = url.."&cursor="..HttpService:UrlEncode(cursor) end
 
-            for _, srv in ipairs(data.data) do
-                local sid = srv.id
-                if sid
-                    and sid ~= current
-                    and not tried[sid]
-                    and srv.playing
-                    and srv.maxPlayers
-                    and srv.playing < srv.maxPlayers
-                then
-                    tried[sid] = true
+        local ok, body = pcall(game.HttpGet, game, url)
+        if not ok or not body then break end
 
-                    local ok = pcall(function()
-                        TeleportService:TeleportToPlaceInstance(PLACE_ID, sid, LocalPlayer)
-                    end)
+        local data = HttpService:JSONDecode(body)
+        cursor = data.nextPageCursor
 
-                    task.wait(0.35)
-
-                    if ok then
-                        task.wait(1)
-                        return
-                    end
-                end
+        for _, srv in ipairs(data.data or {}) do
+            if srv.id and srv.id ~= current
+                and not tried[srv.id]
+                and srv.playing < srv.maxPlayers
+            then
+                tried[srv.id] = true
+                pcall(function()
+                    TeleportService:TeleportToPlaceInstance(PLACE_ID, srv.id, LocalPlayer)
+                end)
+                task.wait(1)
+                return
             end
         end
 
         if not cursor then break end
     end
 
-    -- fallback: let Roblox pick a public server
-    pcall(function()
-        TeleportService:Teleport(PLACE_ID, LocalPlayer)
-    end)
-
-    task.wait(1)
-    hopNewServer()
+    -- fallback
+    TeleportService:Teleport(PLACE_ID, LocalPlayer)
 end
 
 TeleportService.TeleportInitFailed:Connect(function()
-    task.wait(0.35)
+    task.wait(0.4)
     hopNewServer()
 end)
 
@@ -287,9 +236,7 @@ if _G.ELEVATE_LAST_JOB == JOB_ID then
     return
 end
 
-local hits = {}
-local start = os.clock()
-
+local hits, start = {}, os.clock()
 while os.clock() - start < MAX_SCAN_TIME do
     hits = scanBrainrots()
     if #hits > 0 then break end
