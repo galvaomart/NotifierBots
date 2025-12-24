@@ -198,7 +198,7 @@ local function sendWebhook(url, payload)
 end
 
 -- ======================
--- HIGHLIGHTS (BLACK)
+-- HIGHLIGHTS
 -- ======================
 local function sendHighlights(hits)
     local top = hits[1]
@@ -211,23 +211,20 @@ local function sendHighlights(hits)
     end
 
     local embed = {
-        title = top.name,
-        description = "$" .. formatMoney(top.mps) .. "/s",
+        title = string.format("%s — $%s/s", top.name, formatMoney(top.mps)),
         color = 0x0D0D0D,
         footer = { text = "Elevate • Highlights" }
     }
 
     if #lines > 0 then
-        embed.description =
-            embed.description ..
-            "\n\n```text\n" .. table.concat(lines, "\n") .. "\n```"
+        embed.description = "```text\n" .. table.concat(lines, "\n") .. "\n```"
     end
 
     sendWebhook(HIGHLIGHTS_WEBHOOK, { embeds = { embed } })
 end
 
 -- ======================
--- BUYERS (WHITE)
+-- BUYERS
 -- ======================
 local function sendBuyers(hits)
     local top = hits[1]
@@ -236,10 +233,8 @@ local function sendBuyers(hits)
     local encryptedJob = encryptJobId(JOB_ID)
 
     local embed = {
-        title = top.name,
-        description =
-            "$" .. formatMoney(top.mps) .. "/s\n\n" ..
-            "Job ID:\n```" .. encryptedJob .. "```",
+        title = string.format("%s — $%s/s", top.name, formatMoney(top.mps)),
+        description = "Job ID:\n```" .. encryptedJob .. "```",
         color = 0xFFFFFF,
         footer = { text = "Elevate • Private Access" }
     }
@@ -264,11 +259,10 @@ while os.clock() - start < MAX_SCAN_TIME do
     task.wait(0.25)
 end
 
-_G.ELEVATE_LAST_JOB = JOB_ID
-
 if #hits > 0 then
     sendHighlights(hits)
     sendBuyers(hits)
 end
 
+_G.ELEVATE_LAST_JOB = JOB_ID
 hopNewServer()
