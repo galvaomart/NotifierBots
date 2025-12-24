@@ -21,6 +21,26 @@ local HIGHLIGHTS_WEBHOOK = "https://discord.com/api/webhooks/1450984721835102349
 -- ======================
 local ELEVATE_SECRET = "ELEVATE_2025"
 
+-- PURE LUA BASE64 (EXECUTOR SAFE)
+local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+local function base64encode(data)
+    return ((data:gsub('.', function(x)
+        local r,bits='',x:byte()
+        for i=8,1,-1 do
+            r=r..(bits%2^i-bits%2^(i-1)>0 and '1' or '0')
+        end
+        return r
+    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+        if #x < 6 then return '' end
+        local c=0
+        for i=1,6 do
+            c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0)
+        end
+        return b:sub(c+1,c+1)
+    end)..({ '', '==', '=' })[#data%3+1])
+end
+
 local function xorCrypt(input, key)
     local out = {}
     for i = 1, #input do
@@ -32,7 +52,8 @@ local function xorCrypt(input, key)
 end
 
 local function encryptJobId(jobId)
-    return HttpService:Base64Encode(xorCrypt(jobId, ELEVATE_SECRET))
+    local raw = xorCrypt(jobId, ELEVATE_SECRET)
+    return base64encode(raw)
 end
 
 -- ======================
