@@ -11,17 +11,16 @@ local HttpService = game:GetService("HttpService")
 local PLACE_ID = game.PlaceId
 local JOB_ID = game.JobId
 local MIN_MPS = 10_000_000
-local MAX_SCAN_TIME = 4 -- faster scans
+local MAX_SCAN_TIME = 4
 
 local BUYERS_WEBHOOK = "https://discord.com/api/webhooks/1452638384324477132/CW7VXup_c49nzxrYdVqXsJ_siUIQz3-s3edWkomA1_XoQEUe2s6wocMtHcAal99dTwlU"
 local HIGHLIGHTS_WEBHOOK = "https://discord.com/api/webhooks/1450984721835102349/edA21nviAK_1xcHqfVil1REuWpMVq7dLM5nzNwdtenWkZw_2ks1VPR2L88adFid34pA5"
 
 -- ======================
--- SECURITY
+-- JOB ID ENCRYPTION
 -- ======================
 local ELEVATE_SECRET = "ELEVATE_2025"
 
--- EXECUTOR SAFE BASE64
 local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 local function base64encode(data)
     return ((data:gsub('.', function(x)
@@ -60,7 +59,8 @@ end
 -- ======================
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local request =
-    request or http_request
+    request
+    or http_request
     or (syn and syn.request)
     or (fluxus and fluxus.request)
     or (http and http.request)
@@ -71,7 +71,7 @@ local request =
 _G.ELEVATE_LAST_JOB = _G.ELEVATE_LAST_JOB or nil
 
 -- ======================
--- CONSTANTS
+-- RARITY FILTER
 -- ======================
 local RARITY_WORDS = {
     secret=true, mythic=true, legendary=true,
@@ -98,34 +98,7 @@ local function parseMPS(txt)
 end
 
 -- ======================
--- FAST SERVER HOP
--- ======================
-local function hopNewServer()
-    local current = game.JobId
-    for _=1,4 do
-        local ok, body = pcall(game.HttpGet, game,
-            "https://games.roblox.com/v1/games/"..PLACE_ID.."/servers/Public?sortOrder=Asc&limit=100")
-        if not ok or not body then continue end
-        local data = HttpService:JSONDecode(body)
-        for _,srv in ipairs(data.data or {}) do
-            if srv.id ~= current and srv.playing < srv.maxPlayers then
-                TeleportService:TeleportToPlaceInstance(PLACE_ID, srv.id, LocalPlayer)
-                task.wait(1)
-                return
-            end
-        end
-    end
-    task.wait(0.6)
-    hopNewServer()
-end
-
-TeleportService.TeleportInitFailed:Connect(function()
-    task.wait(0.4)
-    hopNewServer()
-end)
-
--- ======================
--- SCAN BRAINROTS (OPTIMISED)
+-- FAST SCAN (NO MIXING)
 -- ======================
 local function scanBrainrots()
     local debris = workspace:FindFirstChild("Debris")
@@ -133,103 +106,178 @@ local function scanBrainrots()
 
     local found, seen = {}, {}
 
-    for _,gui in ipairs(debris:GetDescendants()) do
+    for _, gui in ipairs(debris:GetDescendants()) do
         if (gui:IsA("BillboardGui") or gui:IsA("SurfaceGui"))
-        and gui.Name:find("FastOverheadTemplate") then
-
+            and gui:GetFullName():find("FastOverheadTemplate")
+        then
             local mps, name
 
-            -- PASS 1: find MPS
-            for _,o in ipairs(gui:GetDescendants()) do
+            for _, o in ipairs(gui:GetDescendants()) do
                 if o:IsA("TextLabel") then
                     local v = parseMPS(o.Text)
                     if v then mps = v break end
                 end
             end
 
-            -- PASS 2: find real name (not rarity)
             if mps then
-                for _,o in ipairs(gui:GetDescendants()) do
+                local best, bestLen = nil, 0
+                for _, o in ipairs(gui:GetDescendants()) do
                     if o:IsA("TextLabel") then
                         local t = o.Text
-                        if t and t~=""
-                        and not t:find("/s")
-                        and not t:find("%$")
-                        and not t:match("^%d")
-                        and not t:lower():find("stolen")
-                        and not RARITY_WORDS[t:lower()] then
-                            name = t
-                            break
+                        if t and t ~= ""
+                            and not t:find("/s")
+                            and not t:find("%$")
+                            and not t:match("^%d")
+                            and not t:lower():find("stolen")
+                            and not RARITY_WORDS[t:lower()]
+                        then
+                            if #t > bestLen then
+                                bestLen = #t
+                                best = t
+                            end
                         end
                     end
                 end
+                name = best
             end
 
             if name and mps and mps >= MIN_MPS then
-                local id = name..mps
+                local id = name .. mps
                 if not seen[id] then
                     seen[id] = true
-                    found[#found+1] = {name=name, mps=mps}
+                    found[#found+1] = { name = name, mps = mps }
                 end
             end
         end
     end
 
-    table.sort(found, function(a,b) return a.mps>b.mps end)
+    table.sort(found, function(a,b) return a.mps > b.mps end)
     return found
 end
 
 -- ======================
--- WEBHOOK
+-- WEBHOOK (DESIGN UNCHANGED)
 -- ======================
 local function sendWebhook(url, payload)
     if not request then return end
-    request({
-        Url=url, Method="POST",
-        Headers={["Content-Type"]="application/json"},
-        Body=HttpService:JSONEncode(payload)
+    pcall(request, {
+        Url = url,
+        Method = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body = HttpService:JSONEncode(payload)
     })
 end
 
--- ======================
--- HIGHLIGHTS
--- ======================
 local function sendHighlights(hits)
     local top = hits[1]
     if not top then return end
 
-    local lines={}
-    for i=2,#hits do
-        lines[#lines+1]=string.format("%-22s $%s/s",
-            hits[i].name, formatMoney(hits[i].mps))
+    local lines = {}
+    for i = 2, #hits do
+        lines[#lines + 1] =
+            string.format("%-22s $%s/s", hits[i].name, formatMoney(hits[i].mps))
     end
 
-    local embed={
-        title=string.format("%s — $%s/s", top.name, formatMoney(top.mps)),
-        color=0x0D0D0D,
-        footer={text="Elevate • Highlights"},
-        description=#lines>0 and "```text\n"..table.concat(lines,"\n").."\n```" or nil
+    local embed = {
+        title = string.format("%s — $%s/s", top.name, formatMoney(top.mps)),
+        color = 0x0D0D0D,
+        footer = { text = "Elevate • Highlights" }
     }
 
-    sendWebhook(HIGHLIGHTS_WEBHOOK,{embeds={embed}})
+    if #lines > 0 then
+        embed.description = "```text\n" .. table.concat(lines, "\n") .. "\n```"
+    end
+
+    sendWebhook(HIGHLIGHTS_WEBHOOK, { embeds = { embed } })
 end
 
--- ======================
--- BUYERS
--- ======================
 local function sendBuyers(hits)
     local top = hits[1]
     if not top then return end
 
-    local embed={
-        title=string.format("%s — $%s/s", top.name, formatMoney(top.mps)),
-        description="Job ID:\n```"..encryptJobId(JOB_ID).."```",
-        color=0xFFFFFF,
-        footer={text="Elevate • Private Access"}
+    local encryptedJob = encryptJobId(JOB_ID)
+
+    local embed = {
+        title = string.format("%s — $%s/s", top.name, formatMoney(top.mps)),
+        description = "Job ID:\n```" .. encryptedJob .. "```",
+        color = 0xFFFFFF,
+        footer = { text = "Elevate • Private Access" }
     }
 
-    sendWebhook(BUYERS_WEBHOOK,{embeds={embed}})
+    sendWebhook(BUYERS_WEBHOOK, { embeds = { embed } })
 end
+
+-- ======================
+-- SERVER HOP (FIXED: NO RESTRICTED LOOPS)
+-- ======================
+local tried = {}
+
+local function fetchServers(cursor)
+    local url = "https://games.roblox.com/v1/games/" .. PLACE_ID .. "/servers/Public?sortOrder=Asc&limit=100"
+    if cursor then
+        url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+    end
+
+    local ok, body = pcall(game.HttpGet, game, url)
+    if not ok or not body then return nil end
+
+    local ok2, data = pcall(HttpService.JSONDecode, HttpService, body)
+    if not ok2 or type(data) ~= "table" then return nil end
+    return data
+end
+
+local function hopNewServer()
+    local current = game.JobId
+
+    local cursor = nil
+    for _ = 1, 8 do
+        local data = fetchServers(cursor)
+        if not data or type(data.data) ~= "table" then
+            task.wait(0.25)
+        else
+            cursor = data.nextPageCursor
+
+            for _, srv in ipairs(data.data) do
+                local sid = srv.id
+                if sid
+                    and sid ~= current
+                    and not tried[sid]
+                    and srv.playing
+                    and srv.maxPlayers
+                    and srv.playing < srv.maxPlayers
+                then
+                    tried[sid] = true
+
+                    local ok = pcall(function()
+                        TeleportService:TeleportToPlaceInstance(PLACE_ID, sid, LocalPlayer)
+                    end)
+
+                    task.wait(0.35)
+
+                    if ok then
+                        task.wait(1)
+                        return
+                    end
+                end
+            end
+        end
+
+        if not cursor then break end
+    end
+
+    -- fallback: let Roblox pick a public server
+    pcall(function()
+        TeleportService:Teleport(PLACE_ID, LocalPlayer)
+    end)
+
+    task.wait(1)
+    hopNewServer()
+end
+
+TeleportService.TeleportInitFailed:Connect(function()
+    task.wait(0.35)
+    hopNewServer()
+end)
 
 -- ======================
 -- MAIN
@@ -239,8 +287,10 @@ if _G.ELEVATE_LAST_JOB == JOB_ID then
     return
 end
 
-local hits, start = {}, os.clock()
-while os.clock()-start < MAX_SCAN_TIME do
+local hits = {}
+local start = os.clock()
+
+while os.clock() - start < MAX_SCAN_TIME do
     hits = scanBrainrots()
     if #hits > 0 then break end
     task.wait(0.2)
