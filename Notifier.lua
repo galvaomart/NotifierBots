@@ -154,27 +154,27 @@ local function sendLogs(hits)
 
     sendWebhook(HIGHLIGHTS_WEBHOOK, {
         embeds = {{
-            title = string.format("%s $%s/s",
+            title = string.format("%s  $%s/s",
                 top.name,
                 formatMoney(top.mps)),
             description = #lines > 0 and
                 ("```text\n" .. table.concat(lines, "\n") .. "\n```")
                 or nil,
             color = 0x0D0D0D,
-            footer = { text = "Awesome Notifier • Highlights" }
+            footer = { text = "Elevate • Highlights" }
         }}
     })
 
     sendWebhook(BUYERS_WEBHOOK, {
         embeds = {{
-            title = string.format("%s $%s/s",
+            title = string.format("%s  $%s/s",
                 top.name,
                 formatMoney(top.mps)),
             description = string.format(
                 "```lua\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance(%d, \"%s\", game.Players.LocalPlayer)\n```",
                 PLACE_ID, JOB_ID),
             color = 0xFFFFFF,
-            footer = { text = "Awesome Notifier • Private Access" }
+            footer = { text = "Elevate • Private Access" }
         }}
     })
 end
