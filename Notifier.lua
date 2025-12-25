@@ -34,20 +34,30 @@ _G.ELEVATE_LAST_JOB = _G.ELEVATE_LAST_JOB or nil
 _G.ELEVATE_LOGGED = _G.ELEVATE_LOGGED or {}
 
 -- ======================
--- FILTERS
+-- RARITY FILTER
 -- ======================
 local RARITY_WORDS = {
-    secret=true, mythic=true, legendary=true,
-    epic=true, rare=true, uncommon=true, common=true
+    secret=true,
+    mythic=true,
+    legendary=true,
+    epic=true,
+    rare=true,
+    uncommon=true,
+    common=true,
+    diamond=true
 }
 
 -- ======================
--- UTILS
+-- UTIL
 -- ======================
 local function formatMoney(n)
-    if n >= 1e9 then return string.format("%.1fB", n / 1e9)
-    elseif n >= 1e6 then return string.format("%.1fM", n / 1e6)
-    else return string.format("%.1fK", n / 1e3) end
+    if n >= 1e9 then
+        return string.format("%.1fB", n / 1e9)
+    elseif n >= 1e6 then
+        return string.format("%.1fM", n / 1e6)
+    else
+        return string.format("%.1fK", n / 1e3)
+    end
 end
 
 local function parseMPS(txt)
@@ -63,7 +73,7 @@ local function parseMPS(txt)
 end
 
 -- ======================
--- SCAN BRAINROTS (SAFE + FAST)
+-- SCAN BRAINROTS (FINAL LOGIC)
 -- ======================
 local function scanBrainrots()
     local debris = workspace:FindFirstChild("Debris")
@@ -77,7 +87,7 @@ local function scanBrainrots()
         then
             local mps, name
 
-            -- find MPS
+            -- pass 1: find MPS
             for _, o in ipairs(gui:GetDescendants()) do
                 if o:IsA("TextLabel") then
                     local v = parseMPS(o.Text)
@@ -88,7 +98,7 @@ local function scanBrainrots()
                 end
             end
 
-            -- find REAL name (not rarity)
+            -- pass 2: find real name (never rarity)
             if mps then
                 local best, bestLen = nil, 0
                 for _, o in ipairs(gui:GetDescendants()) do
@@ -111,7 +121,9 @@ local function scanBrainrots()
                 name = best
             end
 
-            if name and mps and mps >= MIN_MPS then
+            if name and mps and mps >= MIN_MPS
+                and not RARITY_WORDS[name:lower()]
+            then
                 local id = name .. mps
                 if not seen[id] then
                     seen[id] = true
@@ -199,7 +211,7 @@ local function sendBuyers(hits)
 end
 
 -- ======================
--- SERVER HOP (NO RESTRICTED SPAM)
+-- SERVER HOP (SAFE)
 -- ======================
 local tried = {}
 
@@ -245,7 +257,6 @@ local function hopNewServer()
         if not cursor then break end
     end
 
-    -- fallback
     TeleportService:Teleport(PLACE_ID, LocalPlayer)
 end
 
