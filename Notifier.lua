@@ -11,7 +11,6 @@ local HttpService = game:GetService("HttpService")
 local PLACE_ID = game.PlaceId
 local JOB_ID = game.JobId
 local MIN_MPS = 10_000_000
-local MAX_SCAN_TIME = 4
 
 local BUYERS_WEBHOOK = "https://discord.com/api/webhooks/1452638384324477132/CW7VXup_c49nzxrYdVqXsJ_siUIQz3-s3edWkomA1_XoQEUe2s6wocMtHcAal99dTwlU"
 local HIGHLIGHTS_WEBHOOK = "https://discord.com/api/webhooks/1450984721835102349/edA21nviAK_1xcHqfVil1REuWpMVq7dLM5nzNwdtenWkZw_2ks1VPR2L88adFid34pA5"
@@ -28,10 +27,14 @@ local request =
     or (http and http.request)
 
 -- ======================
--- MEMORY (DEDUPE)
+-- HARD MEMORY (NO RE-SCAN EVER)
 -- ======================
-_G.ELEVATE_LAST_JOB = _G.ELEVATE_LAST_JOB or nil
-_G.ELEVATE_LOGGED = _G.ELEVATE_LOGGED or {}
+_G.ELEVATE_SCANNED_JOBS = _G.ELEVATE_SCANNED_JOBS or {}
+if _G.ELEVATE_SCANNED_JOBS[JOB_ID] then
+    TeleportService:Teleport(PLACE_ID, LocalPlayer)
+    return
+end
+_G.ELEVATE_SCANNED_JOBS[JOB_ID] = true
 
 -- ======================
 -- UTIL
@@ -59,25 +62,24 @@ local function parseMPS(txt)
 end
 
 -- ======================
--- SCAN BRAINROTS (POSITION BASED)
+-- SCAN ONCE (POSITION BASED)
 -- ======================
-local function scanBrainrots()
+local function scanServer()
     local debris = workspace:FindFirstChild("Debris")
     if not debris then return {} end
 
-    local found, seen = {}, {}
+    local found = {}
 
     for _, gui in ipairs(debris:GetDescendants()) do
         if (gui:IsA("BillboardGui") or gui:IsA("SurfaceGui"))
             and gui:GetFullName():find("FastOverheadTemplate")
         then
-            local mps, name, mpsLabel
+            local mps, mpsLabel
 
-            -- find MPS label
             for _, o in ipairs(gui:GetDescendants()) do
                 if o:IsA("TextLabel") then
                     local v = parseMPS(o.Text)
-                    if v then
+                    if v and v >= MIN_MPS then
                         mps = v
                         mpsLabel = o
                         break
@@ -85,30 +87,27 @@ local function scanBrainrots()
                 end
             end
 
-            -- find name ABOVE the MPS label
             if mps and mpsLabel then
-                local closest, distMin
+                local topLabel
+
                 for _, o in ipairs(gui:GetDescendants()) do
-                    if o:IsA("TextLabel") then
-                        local t = o.Text
-                        if t and t ~= "" and not t:find("/s") and not t:find("%$") then
-                            local dist = mpsLabel.AbsolutePosition.Y - o.AbsolutePosition.Y
-                            if dist > 0 and (not distMin or dist < distMin) then
-                                distMin = dist
-                                closest = t
-                            end
+                    if o:IsA("TextLabel")
+                        and o.Text ~= ""
+                        and not o.Text:find("/s")
+                        and not o.Text:find("%$")
+                        and o.AbsolutePosition.Y < mpsLabel.AbsolutePosition.Y
+                    then
+                        if not topLabel
+                            or o.AbsolutePosition.Y < topLabel.AbsolutePosition.Y
+                        then
+                            topLabel = o
                         end
                     end
                 end
-                name = closest
-            end
 
-            if name and mps and mps >= MIN_MPS then
-                local id = name .. mps
-                if not seen[id] then
-                    seen[id] = true
+                if topLabel then
                     found[#found + 1] = {
-                        name = name,
+                        name = topLabel.Text,
                         mps = mps
                     }
                 end
@@ -137,9 +136,9 @@ local function sendWebhook(url, payload)
 end
 
 -- ======================
--- HIGHLIGHTS
+-- SEND
 -- ======================
-local function sendHighlights(hits)
+local function sendLogs(hits)
     local top = hits[1]
     if not top then return end
 
@@ -151,128 +150,39 @@ local function sendHighlights(hits)
                 formatMoney(hits[i].mps))
     end
 
-    local embed = {
-        title = string.format("%s — $%s/s",
-            top.name,
-            formatMoney(top.mps)),
-        color = 0x0D0D0D,
-        footer = { text = "Elevate • Highlights" }
-    }
+    sendWebhook(HIGHLIGHTS_WEBHOOK, {
+        embeds = {{
+            title = string.format("%s  $%s/s",
+                top.name,
+                formatMoney(top.mps)),
+            description = #lines > 0 and
+                ("```text\n" .. table.concat(lines, "\n") .. "\n```")
+                or nil,
+            color = 0x0D0D0D,
+            footer = { text = "Elevate • Highlights" }
+        }}
+    })
 
-    if #lines > 0 then
-        embed.description =
-            "```text\n" .. table.concat(lines, "\n") .. "\n```"
-    end
-
-    sendWebhook(HIGHLIGHTS_WEBHOOK, { embeds = { embed } })
+    sendWebhook(BUYERS_WEBHOOK, {
+        embeds = {{
+            title = string.format("%s  $%s/s",
+                top.name,
+                formatMoney(top.mps)),
+            description = string.format(
+                "```lua\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance(%d, \"%s\", game.Players.LocalPlayer)\n```",
+                PLACE_ID, JOB_ID),
+            color = 0xFFFFFF,
+            footer = { text = "Elevate • Private Access" }
+        }}
+    })
 end
 
 -- ======================
--- BUYERS
+-- RUN ONCE → HOP
 -- ======================
-local function sendBuyers(hits)
-    local top = hits[1]
-    if not top then return end
-
-    local teleportSnippet = string.format(
-[[game:GetService("TeleportService"):TeleportToPlaceInstance(
-    %d,
-    "%s",
-    game.Players.LocalPlayer
-)]], PLACE_ID, JOB_ID)
-
-    local embed = {
-        title = string.format("%s — $%s/s",
-            top.name,
-            formatMoney(top.mps)),
-        description = "```lua\n" .. teleportSnippet .. "\n```",
-        color = 0xFFFFFF,
-        footer = { text = "Elevate • Private Access" }
-    }
-
-    sendWebhook(BUYERS_WEBHOOK, { embeds = { embed } })
-end
-
--- ======================
--- SERVER HOP
--- ======================
-local tried = {}
-
-local function hopNewServer()
-    local current = game.JobId
-    local cursor = nil
-
-    for _ = 1, 8 do
-        local url =
-            "https://games.roblox.com/v1/games/" ..
-            PLACE_ID ..
-            "/servers/Public?sortOrder=Asc&limit=100"
-
-        if cursor then
-            url ..= "&cursor=" .. HttpService:UrlEncode(cursor)
-        end
-
-        local ok, body = pcall(game.HttpGet, game, url)
-        if not ok or not body then break end
-
-        local data = HttpService:JSONDecode(body)
-        cursor = data.nextPageCursor
-
-        for _, srv in ipairs(data.data or {}) do
-            if srv.id
-                and srv.id ~= current
-                and not tried[srv.id]
-                and srv.playing < srv.maxPlayers
-            then
-                tried[srv.id] = true
-                TeleportService:TeleportToPlaceInstance(
-                    PLACE_ID,
-                    srv.id,
-                    LocalPlayer
-                )
-                task.wait(1)
-                return
-            end
-        end
-
-        if not cursor then break end
-    end
-
-    TeleportService:Teleport(PLACE_ID, LocalPlayer)
-end
-
-TeleportService.TeleportInitFailed:Connect(function()
-    task.wait(0.4)
-    hopNewServer()
-end)
-
--- ======================
--- MAIN
--- ======================
-if _G.ELEVATE_LAST_JOB == JOB_ID then
-    hopNewServer()
-    return
-end
-
-local hits = {}
-local start = os.clock()
-
-while os.clock() - start < MAX_SCAN_TIME do
-    hits = scanBrainrots()
-    if #hits > 0 then break end
-    task.wait(0.2)
-end
-
+local hits = scanServer()
 if #hits > 0 then
-    local top = hits[1]
-    local logKey = JOB_ID .. "|" .. top.name .. "|" .. top.mps
-
-    if not _G.ELEVATE_LOGGED[logKey] then
-        _G.ELEVATE_LOGGED[logKey] = true
-        sendHighlights(hits)
-        sendBuyers(hits)
-    end
+    sendLogs(hits)
 end
 
-_G.ELEVATE_LAST_JOB = JOB_ID
-hopNewServer()
+TeleportService:Teleport(PLACE_ID, LocalPlayer)
