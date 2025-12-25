@@ -34,20 +34,6 @@ _G.ELEVATE_LAST_JOB = _G.ELEVATE_LAST_JOB or nil
 _G.ELEVATE_LOGGED = _G.ELEVATE_LOGGED or {}
 
 -- ======================
--- RARITY FILTER
--- ======================
-local RARITY_WORDS = {
-    secret=true,
-    mythic=true,
-    legendary=true,
-    epic=true,
-    rare=true,
-    uncommon=true,
-    common=true,
-    diamond=true
-}
-
--- ======================
 -- UTIL
 -- ======================
 local function formatMoney(n)
@@ -73,7 +59,7 @@ local function parseMPS(txt)
 end
 
 -- ======================
--- SCAN BRAINROTS (FINAL LOGIC)
+-- SCAN BRAINROTS (POSITION BASED)
 -- ======================
 local function scanBrainrots()
     local debris = workspace:FindFirstChild("Debris")
@@ -85,49 +71,46 @@ local function scanBrainrots()
         if (gui:IsA("BillboardGui") or gui:IsA("SurfaceGui"))
             and gui:GetFullName():find("FastOverheadTemplate")
         then
-            local mps, name
+            local mps, name, mpsLabel
 
-            -- pass 1: find MPS
+            -- find MPS label
             for _, o in ipairs(gui:GetDescendants()) do
                 if o:IsA("TextLabel") then
                     local v = parseMPS(o.Text)
                     if v then
                         mps = v
+                        mpsLabel = o
                         break
                     end
                 end
             end
 
-            -- pass 2: find real name (never rarity)
-            if mps then
-                local best, bestLen = nil, 0
+            -- find name ABOVE the MPS label
+            if mps and mpsLabel then
+                local closest, distMin
                 for _, o in ipairs(gui:GetDescendants()) do
                     if o:IsA("TextLabel") then
                         local t = o.Text
-                        if t and t ~= ""
-                            and not t:find("/s")
-                            and not t:find("%$")
-                            and not t:match("^%d")
-                            and not t:lower():find("stolen")
-                            and not RARITY_WORDS[t:lower()]
-                        then
-                            if #t > bestLen then
-                                bestLen = #t
-                                best = t
+                        if t and t ~= "" and not t:find("/s") and not t:find("%$") then
+                            local dist = mpsLabel.AbsolutePosition.Y - o.AbsolutePosition.Y
+                            if dist > 0 and (not distMin or dist < distMin) then
+                                distMin = dist
+                                closest = t
                             end
                         end
                     end
                 end
-                name = best
+                name = closest
             end
 
-            if name and mps and mps >= MIN_MPS
-                and not RARITY_WORDS[name:lower()]
-            then
+            if name and mps and mps >= MIN_MPS then
                 local id = name .. mps
                 if not seen[id] then
                     seen[id] = true
-                    found[#found + 1] = { name = name, mps = mps }
+                    found[#found + 1] = {
+                        name = name,
+                        mps = mps
+                    }
                 end
             end
         end
@@ -154,7 +137,7 @@ local function sendWebhook(url, payload)
 end
 
 -- ======================
--- HIGHLIGHTS (UNCHANGED STYLE)
+-- HIGHLIGHTS
 -- ======================
 local function sendHighlights(hits)
     local top = hits[1]
@@ -185,7 +168,7 @@ local function sendHighlights(hits)
 end
 
 -- ======================
--- BUYERS (TELEPORT SCRIPT)
+-- BUYERS
 -- ======================
 local function sendBuyers(hits)
     local top = hits[1]
@@ -211,7 +194,7 @@ local function sendBuyers(hits)
 end
 
 -- ======================
--- SERVER HOP (SAFE)
+-- SERVER HOP
 -- ======================
 local tried = {}
 
@@ -226,7 +209,7 @@ local function hopNewServer()
             "/servers/Public?sortOrder=Asc&limit=100"
 
         if cursor then
-            url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+            url ..= "&cursor=" .. HttpService:UrlEncode(cursor)
         end
 
         local ok, body = pcall(game.HttpGet, game, url)
@@ -242,13 +225,11 @@ local function hopNewServer()
                 and srv.playing < srv.maxPlayers
             then
                 tried[srv.id] = true
-                pcall(function()
-                    TeleportService:TeleportToPlaceInstance(
-                        PLACE_ID,
-                        srv.id,
-                        LocalPlayer
-                    )
-                end)
+                TeleportService:TeleportToPlaceInstance(
+                    PLACE_ID,
+                    srv.id,
+                    LocalPlayer
+                )
                 task.wait(1)
                 return
             end
