@@ -29,12 +29,12 @@ local request =
 -- ======================
 -- SCAN ONCE PER SERVER
 -- ======================
-_G.ELEVATE_SCANNED = _G.ELEVATE_SCANNED or {}
-if _G.ELEVATE_SCANNED[JOB_ID] then
+_G.BRAINROT_SCANNED = _G.BRAINROT_SCANNED or {}
+if _G.BRAINROT_SCANNED[JOB_ID] then
     TeleportService:Teleport(PLACE_ID, LocalPlayer)
     return
 end
-_G.ELEVATE_SCANNED[JOB_ID] = true
+_G.BRAINROT_SCANNED[JOB_ID] = true
 
 -- ======================
 -- UTIL
@@ -51,7 +51,7 @@ end
 
 local function parseMPS(txt)
     if not txt then return end
-    local num, suf = txt:match("%$([%d%.]+)%s*([KMB]?)")
+    local num, suf = txt:match("%$([%d%.]+)%s*([KMB]?)%s*/s")
     if not num then return end
     local v = tonumber(num)
     if not v then return end
@@ -62,7 +62,7 @@ local function parseMPS(txt)
 end
 
 -- ======================
--- SCAN SERVER (2-ABOVE RULE)
+-- CORE SCANNER (FONT-SIZE RULE)
 -- ======================
 local function scanServer()
     local debris = workspace:FindFirstChild("Debris")
@@ -72,12 +72,11 @@ local function scanServer()
 
     for _, gui in ipairs(debris:GetDescendants()) do
         if (gui:IsA("BillboardGui") or gui:IsA("SurfaceGui"))
-            and gui:GetFullName():find("FastOverheadTemplate")
+            and gui:GetFullName():lower():find("fastoverheadtemplate")
         then
-            local mps, mpsLabel
             local labels = {}
+            local mps, mpsLabel
 
-            -- collect labels + find MPS
             for _, o in ipairs(gui:GetDescendants()) do
                 if o:IsA("TextLabel") and o.Text ~= "" then
                     labels[#labels + 1] = o
@@ -90,24 +89,28 @@ local function scanServer()
             end
 
             if mps and mps >= MIN_MPS and mpsLabel then
-                -- sort labels top → bottom
-                table.sort(labels, function(a, b)
-                    return a.AbsolutePosition.Y < b.AbsolutePosition.Y
-                end)
+                local bestLabel
+                local bestSize = 0
 
-                -- find index of MPS label
-                for i = 1, #labels do
-                    if labels[i] == mpsLabel and i >= 3 then
-                        local name = labels[i - 2].Text
-                        local id = name .. mps
-                        if not seen[id] then
-                            seen[id] = true
-                            results[#results + 1] = {
-                                name = name,
-                                mps = mps
-                            }
+                for _, o in ipairs(labels) do
+                    local dist = mpsLabel.AbsolutePosition.Y - o.AbsolutePosition.Y
+                    if dist > 0 then
+                        if o.TextSize > bestSize then
+                            bestSize = o.TextSize
+                            bestLabel = o
                         end
-                        break
+                    end
+                end
+
+                if bestLabel then
+                    local name = bestLabel.Text
+                    local id = name .. mps
+                    if not seen[id] then
+                        seen[id] = true
+                        results[#results + 1] = {
+                            name = name,
+                            mps = mps
+                        }
                     end
                 end
             end
@@ -137,9 +140,9 @@ end
 -- ======================
 -- SEND LOGS
 -- ======================
-local hits = scanServer()
-if #hits > 0 then
+local function sendLogs(hits)
     local top = hits[1]
+    if not top then return end
 
     local lines = {}
     for i = 2, #hits do
@@ -154,11 +157,11 @@ if #hits > 0 then
             title = string.format("%s $%s/s",
                 top.name,
                 formatMoney(top.mps)),
-            description = #lines > 0
-                and ("```text\n" .. table.concat(lines, "\n") .. "\n```")
+            description = #lines > 0 and
+                ("```text\n" .. table.concat(lines, "\n") .. "\n```")
                 or nil,
             color = 0x0D0D0D,
-            footer = { text = "Elevate • Highlights" }
+            footer = { text = "Awesome Notifier • Highlights" }
         }}
     })
 
@@ -171,9 +174,17 @@ if #hits > 0 then
                 "```lua\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance(%d, \"%s\", game.Players.LocalPlayer)\n```",
                 PLACE_ID, JOB_ID),
             color = 0xFFFFFF,
-            footer = { text = "Elevate • Private Access" }
+            footer = { text = "Awesome Notifier • Private Access" }
         }}
     })
+end
+
+-- ======================
+-- RUN ONCE → HOP
+-- ======================
+local hits = scanServer()
+if #hits > 0 then
+    sendLogs(hits)
 end
 
 TeleportService:Teleport(PLACE_ID, LocalPlayer)
